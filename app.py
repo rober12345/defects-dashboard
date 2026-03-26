@@ -55,7 +55,6 @@ HTML = """
 {% endif %}
 """
 
-
 # ---------------------------
 # CREATE PARETO
 # ---------------------------
@@ -67,15 +66,19 @@ def create_pareto(df):
     fig, ax1 = plt.subplots()
 
     ax1.bar(df["Failure"], df["Quantity"])
+    ax1.set_ylabel("Quantity")
+    ax1.set_xticks(range(len(df["Failure"])))
     ax1.set_xticklabels(df["Failure"], rotation=45, ha='right')
 
     ax2 = ax1.twinx()
-    ax2.plot(df["Failure"], df["Cum %"], marker='o')
+    ax2.plot(range(len(df["Failure"])), df["Cum %"], marker='o')
+    ax2.set_ylabel("Cumulative %")
 
+    plt.title("Pareto - Failures")
     plt.tight_layout()
 
     img = io.BytesIO()
-    plt.savefig(img, format='png')
+    plt.savefig(img, format='png', bbox_inches='tight')
     img.seek(0)
     plt.close()
 
@@ -83,31 +86,49 @@ def create_pareto(df):
 
 
 # ---------------------------
-# CREATE STACKED
+# CREATE STACKED (UPGRADED)
 # ---------------------------
 def create_stacked(df):
+
+    # 👉 Sort operators by total defects (worst first)
+    df["Total"] = df.drop(columns=["Operator"]).sum(axis=1)
+    df = df.sort_values(by="Total", ascending=False)
+
     df = df.set_index("Operator")
 
     fig, ax = plt.subplots()
 
     bottom = None
 
-    for col in df.columns:
+    for col in df.columns[:-1]:  # exclude Total column
         if df[col].sum() == 0:
             continue
 
         if bottom is None:
-            ax.bar(df.index, df[col])
+            bars = ax.bar(df.index, df[col], label=col)
             bottom = df[col]
         else:
-            ax.bar(df.index, df[col], bottom=bottom)
+            bars = ax.bar(df.index, df[col], bottom=bottom, label=col)
             bottom += df[col]
 
+    # 👉 Add totals on top of bars
+    for i, total in enumerate(df["Total"]):
+        ax.text(i, total + 0.1, str(int(total)), ha='center', fontsize=9)
+
+    ax.set_ylabel("Total Defects")
+    ax.set_xlabel("Operator")
+
     plt.xticks(rotation=45, ha='right')
+
+    # ✅ LEGEND (what you wanted)
+    ax.legend(title="Defects", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.title("Defects by Operator")
+
     plt.tight_layout()
 
     img = io.BytesIO()
-    plt.savefig(img, format='png')
+    plt.savefig(img, format='png', bbox_inches='tight')
     img.seek(0)
     plt.close()
 
@@ -121,14 +142,12 @@ def create_stacked(df):
 def home():
     if request.method == "POST":
 
-        # -------- Get Defects --------
         defects = []
         for j in range(MAX_DEFECTS):
             d = request.form.get(f"defect{j}")
             if d:
                 defects.append(d)
 
-        # -------- Build Operator Matrix --------
         data = []
         pareto_dict = {d: 0 for d in defects}
 
@@ -143,7 +162,6 @@ def home():
                 val = request.form.get(f"cell_{i}_{j}")
                 qty = int(val) if val else 0
                 row[defect] = qty
-
                 pareto_dict[defect] += qty
 
             data.append(row)
@@ -153,7 +171,6 @@ def home():
 
         df = pd.DataFrame(data)
 
-        # -------- Pareto DF --------
         pareto_df = pd.DataFrame({
             "Failure": list(pareto_dict.keys()),
             "Quantity": list(pareto_dict.values())
